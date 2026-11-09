@@ -389,6 +389,8 @@ static const struct blit_backend_ops g_cl_ops = {
     .wait = cl_backend_wait,
     .done = cl_backend_done,
     .release = cl_backend_release,
+    .caps = BLIT_CAP_MIN_0_F0 | BLIT_CAP_MIN_0_CA |
+            BLIT_CAP_MIN_0_00 | BLIT_CAP_ASYNC,
 };
 
 const struct blit_backend_ops *blit_backend_cl(void) { return &g_cl_ops; }

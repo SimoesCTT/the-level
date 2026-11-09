@@ -108,6 +108,8 @@ int main(void)
     }
     printf("blit backend: %d (0=GPU_ASYNC, 1=GPU_SYNC, 2=CPU_FALLBACK, "
            "3=GPU_COPY, 4=GPU_ZERO_COPY)\n", (int)blit_backend());
+    printf("blit caps: 0x%x\n", blit_caps());
+    
     printf("buffer: %d tokens (%d bytes each)\n\n",
            N_TOKENS, (int)sizeof(uint32_t));
 

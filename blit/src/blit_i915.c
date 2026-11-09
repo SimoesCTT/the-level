@@ -316,6 +316,7 @@ static const struct blit_backend_ops g_i915_ops = {
     .wait = i915_backend_wait,
     .done = i915_backend_done,
     .release = i915_backend_release,
+    .caps = BLIT_CAP_ZERO_COPY | BLIT_CAP_MIN_0_F0,
 };
 
 const struct blit_backend_ops *blit_backend_i915(void) { return &g_i915_ops; }

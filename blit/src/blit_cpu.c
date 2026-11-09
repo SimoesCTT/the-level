@@ -77,6 +77,7 @@ static const struct blit_backend_ops g_cpu_ops = {
     .wait = cpu_wait,
     .done = cpu_done,
     .release = cpu_release,
+    .caps = BLIT_CAP_MIN_0_F0 | BLIT_CAP_MIN_0_CA | BLIT_CAP_MIN_0_00,
 };
 
 const struct blit_backend_ops *blit_backend_cpu(void) { return &g_cpu_ops; }

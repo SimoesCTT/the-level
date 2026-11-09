@@ -42,6 +42,12 @@ blit_backend_t blit_backend(void)
     return BLIT_BACKEND_CPU_FALLBACK;
 }
 
+
+uint32_t blit_caps(void)
+{
+    return g_ops ? g_ops->caps : 0;
+}
+
 const char *blit_backend_name(void)
 {
     return g_ops ? g_ops->name : "none";

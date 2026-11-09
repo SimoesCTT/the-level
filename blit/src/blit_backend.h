@@ -12,6 +12,8 @@ struct blit_backend_ops {
     int  (*wait)(void *handle);
     int  (*done)(void *handle);
     void (*release)(void *handle);
+    /* Bitmask of BLIT_CAP_* this backend supports. */
+    uint32_t caps;
 };
 
 struct blit_op {

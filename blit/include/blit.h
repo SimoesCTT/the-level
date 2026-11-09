@@ -141,6 +141,23 @@ typedef enum {
 blit_backend_t blit_backend(void);
 
 /*
+ * Capability bits reported by blit_caps(). A caller can decide how to
+ * structure its pipeline without hardcoding backend names.
+ */
+#define BLIT_CAP_ZERO_COPY       (1u << 0)  /* GPU touches caller memory */
+#define BLIT_CAP_MIN_0_F0        (1u << 1)  /* copy supported */
+#define BLIT_CAP_MIN_0_CA        (1u << 2)  /* masked sprite supported */
+#define BLIT_CAP_MIN_0_00        (1u << 3)  /* fill supported */
+#define BLIT_CAP_ASYNC           (1u << 4)  /* real async completion */
+
+/*
+ * Report the capability bitmask of the selected backend. Call after
+ * blit_init(). Returns 0 if no backend is selected.
+ */
+uint32_t blit_caps(void);
+
+
+/*
  * Queue one 2D operation.
  *
  * On success, returns a completion handle and sets *out_op to it. The
