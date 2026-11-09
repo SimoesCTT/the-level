@@ -2,3 +2,4 @@ chipmem/tests/test_coherency
 chipmem/tests/test_coupled
 blit/tests/test_blit
 *.o
+blit/tests/test_i915_copy
