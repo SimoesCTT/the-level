@@ -475,3 +475,22 @@ artifact, not a hardware result. The lesson is recorded: a negative
 control that runs once cannot distinguish 'the hazard does not exist'
 from 'the hazard did not manifest this time.' A race needs a
 distribution, not a sample.
+
+### Correction: the stale rate varies between batches (2026-11-10)
+
+The first 100-run batch reported B 0.850 (CI 0.767..0.907) and C 0.970
+(CI 0.915..0.990). A second batch of the same binary on the same
+hardware reported B 0.990 (CI 0.946..0.998) and C 1.000
+(CI 0.963..1.000).
+
+The rate itself varies between batches. A single 100-run CI describes
+that batch, not the phenomenon. The honest statement is the observed
+range across batches:
+
+  B: 85/100 to 99/100 stale
+  C: 97/100 to 100/100 stale
+
+The hazard is real, very high, and the output bracket is the more
+critical of the two. chipmem_sync is load-bearing. The earlier entry
+that quoted a single batch's CI as the result should be read as one
+sample of a variable rate, not as the measured rate.

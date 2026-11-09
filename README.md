@@ -78,17 +78,21 @@ of N+1 — is honored by `cl_event` handles on the Rusticl path.
 actual `chipmem` GEM handles. The GPU reads and writes the same pages
 the CPU wrote. Case A passes: `0/1024 mismatched`.
 
-The negative controls run each case 100 times, with a 95% Wilson
-confidence interval on the stale rate. Skipping `chipmem_sync`
-produces a stale or partially-written destination buffer at a
-measured rate of **85%** (both brackets missing, 95% CI 0.767–0.907)
-and **97%** (output bracket missing, 95% CI 0.915–0.990).
+The negative controls run each case 100 times. Skipping
+`chipmem_sync` produces a stale or partially-written destination
+buffer at a very high rate. Across two batches of 100 runs on the
+same hardware and binary:
 
-The audit's `chipmem` coherency claim is **proven and quantified on
-this hardware**. `chipmem_sync` is load-bearing, and the output
-bracket is the more critical of the two. An earlier single-run test
-landed in the clean minority and reported the wrong conclusion; the
-100-run loop exposed the race and put a number on it.
+- Case B (both brackets missing): 85/100 and 99/100 stale.
+- Case C (output bracket missing): 97/100 and 100/100 stale.
+
+The rate itself varies between batches. The hazard is real, the
+output bracket is the more critical of the two, and `chipmem_sync` is
+load-bearing. A single 100-run batch's confidence interval describes
+that batch, not the phenomenon; the honest statement is the observed
+range across batches. An earlier single-run test landed in the clean
+minority and reported the wrong conclusion; the 100-run loop exposed
+the race.
 
 ## Target hardware
 
