@@ -427,3 +427,27 @@ and C report the chipmem coherency withdrawal on iGPU.
 The fd-namespace bug that made all three objects name handle 1 is
 fixed by blit_set_fd(): chipmem and blit share one render node, so
 GEM handles are in one namespace.
+
+### Kaggle T4 probe — zero-copy path unavailable (2026-11-10)
+
+Probed a Kaggle GPU session (NVIDIA T4) for the discrete coherency
+test. Results:
+
+- No /dev/dri directory. No DRM render node, so no DMA-BUF export
+  path. chipmem_alloc cannot run on this machine.
+- OpenCL platform: NVIDIA CUDA 13.0.100, advertising
+  cl_khr_external_memory and cl_khr_external_memory_opaque_fd.
+- The opaque fd handle type is an NVIDIA-internal handle for
+  CUDA/OpenCL interop, not a Linux DMA-BUF. NVIDIA's OpenCL does not
+  import DMA-BUFs from other drivers.
+
+Conclusion: Kaggle cannot settle the chipmem discrete coherency
+claim. The zero-copy path requires a DRM render node and a backend
+that imports DMA-BUF zero-copy, neither of which is available in a
+managed Kaggle container. The discrete test requires a machine the
+operator controls, with the NVIDIA open kernel driver (or amdgpu)
+and DMA-BUF import support.
+
+This closes the "rent a cloud GPU" question. The prerequisite named
+in docs/backends.md stands: a zero-copy backend for the discrete
+hardware, built and tested on hardware the operator controls.
