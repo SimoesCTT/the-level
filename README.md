@@ -78,12 +78,17 @@ of N+1 — is honored by `cl_event` handles on the Rusticl path.
 actual `chipmem` GEM handles. The GPU reads and writes the same pages
 the CPU wrote. Case A passes: `0/1024 mismatched`.
 
-The negative controls (skip `chipmem_sync` in both directions) show
-**0 stale reads** on Skylake iGPU. The audit's `chipmem` coherency
-claim is **withdrawn for this hardware**: the CPU and GPU share the
-memory controller and are coherent enough that the hazard does not
-manifest here. The claim remains open for discrete accelerators over
-PCIe, where the caches are separate.
+The negative controls run each case 100 times, with a 95% Wilson
+confidence interval on the stale rate. Skipping `chipmem_sync`
+produces a stale or partially-written destination buffer at a
+measured rate of **85%** (both brackets missing, 95% CI 0.767–0.907)
+and **97%** (output bracket missing, 95% CI 0.915–0.990).
+
+The audit's `chipmem` coherency claim is **proven and quantified on
+this hardware**. `chipmem_sync` is load-bearing, and the output
+bracket is the more critical of the two. An earlier single-run test
+landed in the clean minority and reported the wrong conclusion; the
+100-run loop exposed the race and put a number on it.
 
 ## Target hardware
 
