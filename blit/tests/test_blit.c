@@ -146,7 +146,8 @@ int main(void)
     blit_shutdown();
 
     if (rc == 0) {
-        printf("\nall blit tests PASS\n");
+        printf("\ntests completed. See the backend note below for which\n");
+        printf("minterms ran on the GPU and which fell through to the CPU.\n");
         if (be == BLIT_BACKEND_GPU_COPY) {
             printf("Backend: GPU_COPY. Kernels executed on the GPU via\n");
             printf("Rusticl/iris. Completion handles are real cl_events.\n");
