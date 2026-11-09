@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <math.h>
 #include <fcntl.h>
 #include <unistd.h>
 
@@ -121,16 +122,43 @@ int main(void)
     else if (rc == -1) printf("A: PASS  data correct\n");
     else { printf("A: FAIL mismatch at %d\n", rc); failures++; }
 
-    rc = run_coupled(0, 0, err, sizeof(err));
-    if (rc == -2) printf("B: SKIP %s\n", err);
-    else if (rc == -1) printf("B: 0 stale: claim withdrawn on this hardware\n");
-    else printf("B: %d stale of %d (evidence: claim survives)\n", rc, N_TOKENS);
+#define NEG_RUNS 100
+    int b_clean = 0, b_dirty = 0, b_err = 0;
+    int c_clean = 0, c_dirty = 0, c_err = 0;
+    for (int i = 0; i < NEG_RUNS; i++) {
+        rc = run_coupled(0, 0, err, sizeof(err));
+        if (rc == -2) b_err++;
+        else if (rc == -1) b_clean++;
+        else b_dirty++;
+    }
+    for (int i = 0; i < NEG_RUNS; i++) {
+        rc = run_coupled(1, 0, err, sizeof(err));
+        if (rc == -2) c_err++;
+        else if (rc == -1) c_clean++;
+        else c_dirty++;
+    }
+    printf("B: %d runs, %d clean, %d mismatched, %d error\n",
+           NEG_RUNS, b_clean, b_dirty, b_err);
+    printf("C: %d runs, %d clean, %d mismatched, %d error\n",
+           NEG_RUNS, c_clean, c_dirty, c_err);
 
-    rc = run_coupled(1, 0, err, sizeof(err));
-    if (rc == -2) printf("C: SKIP %s\n", err);
-    else if (rc == -1) printf("C: 0 stale: claim withdrawn on this hardware\n");
-    else printf("C: %d stale of %d (evidence: claim survives)\n", rc, N_TOKENS);
 
+    /* Wilson 95% CI for the stale rate. p_hat = dirty / (clean+dirty). */
+    {
+        double z = 1.959963984540054;
+        for (int which = 0; which < 2; which++) {
+            int clean = which ? c_clean : b_clean;
+            int dirty = which ? c_dirty : b_dirty;
+            int n = clean + dirty;
+            double p_hat = n ? (double)dirty / n : 0.0;
+            double denom = 1.0 + z*z/n;
+            double center = (p_hat + z*z/(2*n)) / denom;
+            double half = z * sqrt((p_hat*(1-p_hat)/n + z*z/(4*n*n))) / denom;
+            double lo = center - half, hi = center + half;
+            printf("   %c: stale rate = %.3f (95%% Wilson CI %.3f..%.3f)\n",
+                   which ? 'C' : 'B', p_hat, lo, hi);
+        }
+    }
     int selected = (int)blit_backend();
     blit_shutdown();
 

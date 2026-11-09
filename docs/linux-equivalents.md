@@ -451,3 +451,27 @@ and DMA-BUF import support.
 This closes the "rent a cloud GPU" question. The prerequisite named
 in docs/backends.md stands: a zero-copy backend for the discrete
 hardware, built and tested on hardware the operator controls.
+
+### chipmem coherency — quantified on Skylake iGPU (2026-11-10)
+
+The negative controls run 100 times each. Stale rate and 95% Wilson
+confidence interval:
+
+  B (skip both syncs):    15/100 clean, 85/100 mismatched
+                          stale rate = 0.850 (95% CI 0.767..0.907)
+  C (skip output sync):    3/100 clean, 97/100 mismatched
+                          stale rate = 0.970 (95% CI 0.915..0.990)
+
+Both intervals are narrow and well away from zero. The chipmem
+coherency claim is PROVEN and quantified on this hardware.
+chipmem_sync is load-bearing: skipping it produces a stale or
+partially-written destination buffer at a measured rate of 85% (both
+brackets missing) to 97% (output bracket missing). The output bracket
+is the more critical of the two.
+
+An earlier single-run negative control landed in the clean minority
+and reported '0 stale, claim withdrawn.' That was a sampling
+artifact, not a hardware result. The lesson is recorded: a negative
+control that runs once cannot distinguish 'the hazard does not exist'
+from 'the hazard did not manifest this time.' A race needs a
+distribution, not a sample.
