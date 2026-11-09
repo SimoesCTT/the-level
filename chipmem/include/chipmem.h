@@ -60,6 +60,14 @@ typedef struct chipmem_buffer chipmem_buffer_t;
  * The CPU pointer is valid immediately. The accelerator must NOT access
  * the buffer until chipmem_sync() is called with the appropriate flags.
  */
+/*
+ * Use an existing DRM fd for subsequent chipmem_alloc calls. This
+ * allows chipmem buffers to share a GEM handle namespace with a
+ * backend that submits batches directly (blit_i915). If not called,
+ * chipmem_alloc opens its own render node.
+ */
+void chipmem_set_fd(int fd);
+
 chipmem_buffer_t *chipmem_alloc(size_t size,
                                 chipmem_backend_t *out_backend);
 
@@ -103,6 +111,22 @@ uint64_t chipmem_backend_cost(chipmem_buffer_t *buf);
  * Free the buffer. Any DMA-BUF fd becomes invalid. The accelerator must
  * have finished before this is called.
  */
+/*
+ * Get the underlying i915 GEM handle for this buffer. Returns 0 if the
+ * buffer is not i915-backed (COPY_FALLBACK), and sets *out_handle to 0.
+ * Intended for backends that submit batches directly, not for general
+ * use.
+ */
+int chipmem_gem_handle(chipmem_buffer_t *buf, uint32_t *out_handle);
+
+/*
+ * Get the underlying i915 GEM handle for this buffer. Returns 0 if the
+ * buffer is not i915-backed (COPY_FALLBACK), and sets *out_handle to 0.
+ * Intended for backends that submit batches directly, not for general
+ * use.
+ */
+int chipmem_gem_handle(chipmem_buffer_t *buf, uint32_t *out_handle);
+
 void chipmem_free(chipmem_buffer_t *buf);
 
 #ifdef __cplusplus

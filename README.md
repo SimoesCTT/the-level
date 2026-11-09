@@ -1,83 +1,96 @@
 # The Level
 
-A userspace AI acceleration layer for ordinary GPUs, built on the
-Amiga's accelerator programming model — shared memory with an explicit
-contract, and an async 2D unit with a stable completion signal — not on
-Amiga hardware.
+Two small userspace libraries that restore, on Linux, two accelerator
+programming primitives the Amiga exposed to programmers and that
+Linux does not expose at the same level of simplicity:
 
-## Thesis
+- **`chipmem`** — coherent CPU/accelerator memory with one explicit
+  `chipmem_sync()` handoff.
+- **`blit`** — a programmable 2D engine with a minterm, a mask, a
+  shift, and a per-operation completion handle.
 
-The Amiga's real lost capability was not any single chip. It was that
-every capability — display, 2D blitting, memory shared with
-accelerators — was exposed to the programmer at the same level, with
-the same simplicity, on the same machine. Linux has all the chips and
-none of the simplicity.
+Not a reimplementation of Amiga hardware. The hardware is irrelevant.
+The programming model is the point.
 
-## Rule
+## What this is for
+
+Most AI systems still treat CPU and accelerator memory as permanently
+foreign address spaces, forcing copies and complex pinning APIs for
+every non-tensor 2D operation in the pipeline. On the growing class of
+hardware that can share memory through DMA-BUF (integrated GPUs today,
+an increasing number of discrete devices tomorrow), that assumption is
+unnecessary. The Level provides two small userspace libraries:
+`chipmem`, which turns the kernel's required DMA-BUF coherency
+protocol into a single named handoff, and `blit`, a programmable
+async 2D engine that can operate zero-copy on those buffers. Together
+they let pre- and post-processing (tiling, masking, layout
+conversion, tokenizer transforms) stay on the GPU without the usual
+copy tax, while remaining honest about the cases where the hardware
+still requires a transfer.
+
+## The rule
 
 We only claim a "reinvention" if the capability is **actually absent**
-on Linux today. `docs/linux-equivalents.md` names the closest existing
-mechanism for each candidate and the concrete condition under which the
-claim would be withdrawn.
-
-## Candidates
-
-1. **`chipmem`** — coherent CPU/accelerator memory with one explicit
-   `chipmem_sync()` contract. **Priority 1.**
-2. **`blit`** — programmable async 2D engine with per-operation
-   completion. **Priority 2.**
-3. **`copper`** — scanline-synchronized display agent. **Speculative;
-   no code until feasibility is proven.**
+on Linux today. `docs/linux-equivalents.md` names the closest
+existing mechanism for each candidate, why it does not count, and the
+concrete condition under which the claim would be withdrawn. If the
+existing mechanism is genuinely equivalent, the item is dropped.
 
 ## What works today
 
 ### `chipmem`
 
-- `chipmem.h`: `chipmem_alloc`, `chipmem_cpu_ptr`, `chipmem_dmabuf_fd`,
-  `chipmem_sync`, `chipmem_backend`, `chipmem_backend_cost`,
-  `chipmem_free`.
+- `chipmem.h`: `chipmem_alloc`, `chipmem_cpu_ptr`,
+  `chipmem_dmabuf_fd`, `chipmem_sync`, `chipmem_backend`,
+  `chipmem_backend_cost`, `chipmem_free`, `chipmem_set_fd`,
+  `chipmem_gem_handle`.
 - `chipmem.c`: i915 GEM + PRIME backend. `DRM_IOCTL_I915_GEM_CREATE` +
-  `DRM_IOCTL_PRIME_HANDLE_TO_FD` (with `DRM_CLOEXEC | DRM_RDWR`) exports
-  a DMA-BUF that `mmap()` accepts and `DMA_BUF_IOCTL_SYNC` brackets
-  without error. Allocation size is rounded up to the page size
-  internally.
-- `tests/test_coherency.c`: passes on the sync path. Reports honestly
-  that GPU-side coherency is **not** tested, because the "accelerator"
-  is the CPU writing through a second mapping.
+  `DRM_IOCTL_PRIME_HANDLE_TO_FD` (with `DRM_CLOEXEC | DRM_RDWR`)
+  exports a DMA-BUF that `mmap()` accepts and `DMA_BUF_IOCTL_SYNC`
+  brackets without error. Allocation size is rounded up to the page
+  size internally.
 - `udmabuf` was rejected as a backend on kernel 7.2.13: its
   `begin_cpu_access` returns `EINVAL` on first sync. The i915 path is
   the real backend.
 
 ### `blit`
 
-- `blit.h`: `blit_init`, `blit`, `blit_op_wait`, `blit_op_done`,
-  `blit_op_release`, `blit_shutdown`, `blit_backend`.
-- `blit.c`: CPU fallback backend. Minterms `0xF0` (copy), `0xCA`
-  (masked sprite), `0x00` (fill). The stability guarantee — waiting on
-  operation N completes independently of N+1 — is honored by the
-  handle semantics.
-- `tests/test_blit.c`: copy, mask, fill, and stable completion pass.
-  Prints "asynchrony not exercised," which is true.
+Two working GPU backends:
 
-### `copper`
+- **Rusticl / iris** (`BLIT_BACKEND_GPU_COPY`). Kernels run on the GPU
+  via `cl_event` completion handles. Data is copied to and from GPU
+  buffers because Rusticl does not support
+  `cl_khr_external_memory_dma_buf`. Cross-platform, copy at the
+  boundary.
+- **i915 BLT zero-copy** (`blit_i915.c`). `XY_SRC_COPY_BLT` submitted
+  to the BLT ring via `DRM_IOCTL_I915_GEM_EXECBUFFER2` with softpin.
+  The GPU reads and writes the `chipmem` GEM handles directly, no
+  copy. Verified on Skylake-U. Gen8/Gen9-specific; not a universal
+  backend.
 
-Audit entry only. No code. Feasibility is not proven on the named
-display controller.
+Minterms `0xF0` (copy), `0xCA` (masked sprite), `0x00` (fill). The
+stability guarantee — waiting on operation N completes independently
+of N+1 — is honored by `cl_event` handles on the Rusticl path.
 
-## The honest status, in one paragraph
+### The coupled test
 
-Both contracts exist. Both CPU-side implementations work and pass their
-tests. Neither library has executed on the GPU. The `chipmem` coherency
-claim and the `blit` "missing API" claim are both **open**, not proven
-and not withdrawn. The next real work is a GPU backend for `blit`,
-which then makes the `chipmem` coherency test meaningful. Until then,
-the libraries are correct plumbing with unexercised acceleration.
+`chipmem/tests/test_coupled.c` runs the i915 BLT backend on the
+actual `chipmem` GEM handles. The GPU reads and writes the same pages
+the CPU wrote. Case A passes: `0/1024 mismatched`.
+
+The negative controls (skip `chipmem_sync` in both directions) show
+**0 stale reads** on Skylake iGPU. The audit's `chipmem` coherency
+claim is **withdrawn for this hardware**: the CPU and GPU share the
+memory controller and are coherent enough that the hazard does not
+manifest here. The claim remains open for discrete accelerators over
+PCIe, where the caches are separate.
 
 ## Target hardware
 
 Intel Skylake-U GT2 (HD Graphics 520), `i915`, kernel 7.2.13.
 `chipmem` backend: `CHIPMEM_BACKEND_DMABUF_SYNC_IOCTL`.
-`blit` backend: `BLIT_BACKEND_GPU_COPY` (Rusticl/iris on HD 520).
+`blit` backends: `BLIT_BACKEND_GPU_COPY` (Rusticl) and i915 BLT
+zero-copy.
 
 ## Not doing
 
@@ -85,9 +98,10 @@ Intel Skylake-U GT2 (HD Graphics 520), `i915`, kernel 7.2.13.
 - Claiming Linux lacks something without proving the closest existing
   mechanism doesn't count.
 - Promising hardware-dependent features before feasibility is shown.
-- Claiming "AI acceleration" before `blit` runs on the GPU.
-- Claiming the coherency hazard is proven before the negative control
-  exercises a real GPU reader/writer.
+- Claiming "AI acceleration" in the sense of more FLOPs. The claim is
+  about the programming model and the data path, not throughput.
+- Claiming the coherency hazard is real on hardware where the test
+  says it does not manifest.
 
 ## Repo layout
 
@@ -95,10 +109,19 @@ the-level/
 ├── chipmem/
 │ ├── include/chipmem.h
 │ ├── src/chipmem.c
-│ └── tests/test_coherency.c
+│ └── tests/
+│ ├── test_coherency.c
+│ └── test_coupled.c
 ├── blit/
 │ ├── include/blit.h
-│ ├── src/blit.c
+│ ├── src/
+│ │ ├── blit.c
+│ │ ├── blit_cl.c
+│ │ ├── blit_cl.h
+│ │ ├── blit_i915.c
+│ │ ├── blit_i915.h
+│ │ ├── addr_alloc.c
+│ │ └── addr_alloc.h
 │ └── tests/test_blit.c
 ├── copper/ # audit entry only, no code
 ├── docs/linux-equivalents.md

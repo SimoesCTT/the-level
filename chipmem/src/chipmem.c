@@ -44,6 +44,13 @@ struct chipmem_buffer {
     uint64_t          sync_cost_ns;
 };
 
+static int g_shared_fd = -1;
+
+void chipmem_set_fd(int fd)
+{
+    g_shared_fd = fd;
+}
+
 static uint64_t now_ns(void)
 {
     struct timespec ts;
@@ -78,9 +85,14 @@ static int try_i915_alloc(size_t aligned_size,
                           uint32_t *out_gem_handle,
                           int *out_dmabuf_fd)
 {
-    int drm_fd = open_render_node();
-    if (drm_fd < 0)
-        return -1;
+    int drm_fd;
+    if (g_shared_fd >= 0) {
+        drm_fd = g_shared_fd;
+    } else {
+        drm_fd = open_render_node();
+        if (drm_fd < 0)
+            return -1;
+    }
 
     struct drm_i915_gem_create create = {
         .size  = (uint64_t)aligned_size,
@@ -251,6 +263,23 @@ uint64_t chipmem_backend_cost(chipmem_buffer_t *buf)
     return buf ? buf->sync_cost_ns : 0;
 }
 
+
+int chipmem_gem_handle(chipmem_buffer_t *buf, uint32_t *out_handle)
+{
+    if (!buf || !out_handle) {
+        errno = EINVAL;
+        return -EINVAL;
+    }
+    if (buf->drm_fd < 0 || buf->gem_handle == 0) {
+        *out_handle = 0;
+        return 0;
+    }
+    *out_handle = buf->gem_handle;
+    return 0;
+}
+
+
+
 void chipmem_free(chipmem_buffer_t *buf)
 {
     if (!buf)
@@ -266,7 +295,7 @@ void chipmem_free(chipmem_buffer_t *buf)
         struct drm_gem_close close_arg = { .handle = buf->gem_handle };
         ioctl(buf->drm_fd, DRM_IOCTL_GEM_CLOSE, &close_arg);
     }
-    if (buf->drm_fd >= 0)
+    if (buf->drm_fd >= 0 && buf->drm_fd != g_shared_fd)
         close(buf->drm_fd);
 
     free(buf);

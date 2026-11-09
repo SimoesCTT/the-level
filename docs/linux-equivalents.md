@@ -301,3 +301,103 @@ unexercised without reading the prose.
 and are tested on the CPU side. Unproven: that skipping `chipmem_sync`
 causes a GPU to read stale data; that `blit` fills a missing userspace
 2D API on this hardware. Neither claim is withdrawn.
+
+### i915 BLT zero-copy backend — works on Skylake (2026-11-10)
+
+`blit_i915.c` submits `XY_SRC_COPY_BLT` to the BLT ring via
+`DRM_IOCTL_I915_GEM_EXECBUFFER2` with softpin. The GPU reads and
+writes the `chipmem` GEM handles directly: no copy at the boundary.
+
+What made it work, in order:
+- `MI_BATCH_BUFFER_END` must be `0x05000000`, not `0x0a << 23 | 1`.
+  The `| 1` makes it an illegal command and the parser rejects the
+  batch.
+- The batch must be written through `MMAP_OFFSET` + `memcpy` +
+  `munmap`. `GEM_SET_DOMAIN` is retired on this kernel and returns
+  `EINVAL`; `munmap` alone clears the write domain.
+- Source, destination, and batch are soft-pinned at low addresses
+  (2 MiB, 16 MiB, 32 MiB) with `EXEC_OBJECT_PINNED |
+  EXEC_OBJECT_SUPPORTS_48B_ADDRESS`. The batch has no
+  `EXEC_OBJECT_WRITE`.
+- `exec.flags = I915_EXEC_BLT | I915_EXEC_NO_RELOC`,
+  `relocation_count = 0` everywhere.
+- Completion is not `DRM_IOCTL_I915_GEM_WAIT` on the batch handle
+  (`ENODEV` on this kernel). The `chipmem_sync(dst, ACCEL_WRITE)`
+  call is the real synchronization point; it blocks until the GPU is
+  done with the buffer.
+
+Result: `i915 copy: 0/1024 mismatched`. The GPU copied `chipmem`
+memory zero-copy.
+
+The coupled test now runs `blit_i915_copy` on the actual `chipmem`
+GEM handles. Cases B and C (skip sync) are the audit evidence for the
+`chipmem` coherency claim.
+
+### `chipmem` coherency result — claim withdrawn on Skylake iGPU (2026-11-10)
+
+The coupled test ran the zero-copy i915 blitter against `chipmem`
+GEM handles with the `chipmem_sync` brackets removed in both
+directions. Result: 0 stale reads in both negative controls.
+
+The audit's `chipmem` withdrawal condition was: "on target hardware,
+`mmap()` of an accelerator DMA-BUF gives a CPU-writable pointer whose
+writes are visible to the accelerator without `begin/end_cpu_access`
+and without a hidden copy." That condition is met on Skylake iGPU
+with the blitter. **The claim is withdrawn for this hardware.**
+
+The `DMA_BUF_IOCTL_SYNC` bracket is still required by the kernel
+contract, and `chipmem_sync()` still issues it. It is not observably
+required to prevent stale reads on this iGPU, because the CPU and GPU
+share the memory controller and are coherent enough that the blitter
+reads correct data without the bracket.
+
+**What remains open:** discrete accelerators over PCIe, where CPU and
+GPU caches are separate and the coherency hazard is expected to be
+real. That is a different hardware configuration and a different test.
+The claim is not withdrawn there; it is untested there.
+
+**What this does NOT mean:** that the bracket is unnecessary. It
+means this specific test, on this specific hardware, did not produce
+the failure mode the bracket protects against. The `chipmem` contract
+is unchanged; only the claim that skipping it causes stale reads on
+Skylake iGPU is withdrawn.
+
+### AI relevance and generality (2026-11-10)
+
+**The strongest version of the AI argument that survives the "actually
+absent on Linux" rule** is not "faster copies." It is: a small,
+explicit, portable contract for memory that is simultaneously
+CPU-accessible and accelerator-owned, with one named handoff point
+(`chipmem_sync`) that the kernel requires but does not provide as a
+simple userspace primitive. Every major AI runtime treats CPU and
+accelerator memory as permanently different address spaces, which
+forces explicit copies and pin-memory APIs for every non-tensor 2D
+operation. `chipmem` restores the contract the hardware actually has:
+one allocation, one handoff, zero hidden copies when the hardware is
+coherent, an honest error when it is not. `blit` is the async 2D
+primitive for the non-tensor work (tiling, masking, layout
+conversion, tokenizer transforms) that today runs on the CPU or as
+awkward GPU compute kernels.
+
+**Generality of the zero-copy BLT path:** it is generation- and
+vendor-specific. `XY_SRC_COPY_BLT` + softpin + the exact domain and
+cmdparser sequence is an i915 Gen8/Gen9 (and some Gen11) detail.
+Newer Intel gens prefer `XY_FAST_COPY_BLT` / `XY_BLOCK_COPY_BLT` and
+eventually compute engines; AMD has a different command stream and
+VM model. The *idea* — submit a fixed-function 2D command stream
+against DMA-BUF handles with softpin and an explicit fence — is
+generalizable. The i915 BLT implementation is a working production
+backend for Skylake-era iGPUs and a high-quality reference, not a
+universal backend. A multi-vendor version would need a thin
+abstraction over "submit a minterm blit against two DMA-BUFs and
+return a fence."
+
+**Discrete-accelerator test prerequisite:** the discrete coherency
+test Grok described is the right shape, but it only settles the
+`chipmem` claim if the backend can touch the `chipmem` pages
+zero-copy on that GPU. Rusticl cannot import the DMA-BUF, so a
+Rusticl run on a discrete GPU measures the copy boundary, not the
+hazard. A zero-copy backend for the discrete hardware (e.g. NVIDIA
+open kernel driver with DMA-BUF, or amdgpu) is the prerequisite. The
+audit records this rather than renting a GPU to run a test that
+cannot answer the question.
