@@ -28,6 +28,7 @@
 
 #include "blit.h"
 #include "blit_cl.h"
+#include "blit_backend.h"
 
 #define BLIT_CL_MAX_PLATFORMS 8
 #define BLIT_CL_MAX_DEVICES   4
@@ -334,3 +335,60 @@ done:
     if (cl_mask) clReleaseMemObject(cl_mask);
     return rc;
 }
+
+/* ---- Backend registration --------------------------------------- */
+
+
+static int cl_backend_init(int fd)
+{
+    (void)fd;
+    return blit_cl_init();
+}
+
+static int cl_backend_submit(const blit_desc_t *desc, blit_mode_t mode, void **out)
+{
+    (void)mode;
+    cl_event ev = NULL;
+    int rc = blit_cl_execute(desc, &ev);
+    if (rc != 0) return rc;
+    *out = (void *)(uintptr_t)ev;
+    return 0;
+}
+
+static int cl_backend_wait(void *h)
+{
+    cl_event ev = (cl_event)(uintptr_t)h;
+    if (!ev) return 0;
+    cl_int err = clWaitForEvents(1, &ev);
+    clReleaseEvent(ev);
+    return (err == CL_SUCCESS) ? 0 : -EIO;
+}
+
+static int cl_backend_done(void *h)
+{
+    cl_event ev = (cl_event)(uintptr_t)h;
+    if (!ev) return 1;
+    cl_int status = 0;
+    cl_int err = clGetEventInfo(ev, CL_EVENT_COMMAND_EXECUTION_STATUS,
+                                sizeof(status), &status, NULL);
+    if (err != CL_SUCCESS) return 0;
+    return (status == CL_COMPLETE) ? 1 : 0;
+}
+
+static void cl_backend_release(void *h)
+{
+    cl_event ev = (cl_event)(uintptr_t)h;
+    if (ev) clReleaseEvent(ev);
+}
+
+static const struct blit_backend_ops g_cl_ops = {
+    .name = "rusticl",
+    .init = cl_backend_init,
+    .shutdown = blit_cl_shutdown,
+    .submit = cl_backend_submit,
+    .wait = cl_backend_wait,
+    .done = cl_backend_done,
+    .release = cl_backend_release,
+};
+
+const struct blit_backend_ops *blit_backend_cl(void) { return &g_cl_ops; }

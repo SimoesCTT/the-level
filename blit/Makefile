@@ -7,12 +7,13 @@ LDFLAGS ?= $(shell pkg-config --libs libdrm 2>/dev/null) \
            $(shell pkg-config --libs OpenCL 2>/dev/null)
 
 TEST := tests/test_blit
-SRC  := src/blit.c src/blit_cl.c src/blit_i915.c src/addr_alloc.c \
-        tests/test_blit.c
+SRC  := src/blit.c src/blit_cpu.c src/blit_cl.c src/blit_i915.c \
+        src/addr_alloc.c tests/test_blit.c
 
 all: $(TEST)
 
-$(TEST): $(SRC) include/blit.h src/blit_cl.h src/blit_i915.h src/addr_alloc.h
+$(TEST): $(SRC) include/blit.h src/blit_backend.h src/blit_cl.h \
+         src/blit_i915.h src/addr_alloc.h
 	$(CC) $(CFLAGS) -o $@ $(SRC) $(LDFLAGS)
 
 check: $(TEST)

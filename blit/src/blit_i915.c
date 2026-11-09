@@ -23,6 +23,7 @@
 
 #include "blit.h"
 #include "blit_i915.h"
+#include "blit_backend.h"
 
 #ifndef I915_EXEC_BLT
 #define I915_EXEC_BLT (3 << 0)
@@ -280,3 +281,41 @@ int blit_i915_copy_from_ptr(const void *src, void *dst,
     if (out_dst_handle) *out_dst_handle = dst_h;
     return 0;
 }
+
+/* ---- Backend registration --------------------------------------- */
+
+static int i915_backend_submit(const blit_desc_t *desc, blit_mode_t mode, void **out)
+{
+    (void)mode;
+    if (desc->minterm != 0xF0) return -ENOTSUP;
+    if (desc->bpp != 4) return -ENOTSUP;
+    uint32_t batch = 0, src_h = 0, dst_h = 0;
+    int rc = blit_i915_copy_from_ptr(desc->src, desc->dst,
+                                     desc->width, desc->height, desc->bpp,
+                                     desc->src_stride, desc->dst_stride,
+                                     &src_h, &dst_h, &batch);
+    if (rc != 0) return rc;
+    *out = (void *)(uintptr_t)batch;
+    return 0;
+}
+
+static int i915_backend_wait(void *h) { (void)h; return 0; }
+static int i915_backend_done(void *h) { (void)h; return 1; }
+
+static void i915_backend_release(void *h)
+{
+    uint32_t batch = (uint32_t)(uintptr_t)h;
+    if (batch) blit_i915_close_batch(batch);
+}
+
+static const struct blit_backend_ops g_i915_ops = {
+    .name = "i915",
+    .init = blit_i915_init,
+    .shutdown = blit_i915_shutdown,
+    .submit = i915_backend_submit,
+    .wait = i915_backend_wait,
+    .done = i915_backend_done,
+    .release = i915_backend_release,
+};
+
+const struct blit_backend_ops *blit_backend_i915(void) { return &g_i915_ops; }

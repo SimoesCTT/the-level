@@ -129,10 +129,11 @@ int main(void)
     else if (rc == -1) printf("C: 0 stale: claim withdrawn on this hardware\n");
     else printf("C: %d stale of %d (evidence: claim survives)\n", rc, N_TOKENS);
 
+    int selected = (int)blit_backend();
     blit_shutdown();
 
     if (failures) { printf("\nFAIL: %d case(s)\n", failures); return 1; }
     printf("\nComposition works through the blit() API.\n");
-    printf("Backend %d was selected by blit_init().\n", (int)blit_backend());
+    printf("Backend %d was selected by blit_init().\n", selected);
     return 0;
 }

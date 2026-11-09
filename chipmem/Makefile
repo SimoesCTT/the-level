@@ -14,12 +14,14 @@ all: $(TEST) $(COUPLED)
 $(TEST): src/chipmem.c tests/test_coherency.c include/chipmem.h
 	$(CC) $(CFLAGS) -o $@ src/chipmem.c tests/test_coherency.c $(LDFLAGS)
 
-$(COUPLED): src/chipmem.c ../blit/src/blit.c ../blit/src/blit_i915.c \
-            ../blit/src/blit_cl.c ../blit/src/addr_alloc.c \
-            tests/test_coupled.c include/chipmem.h ../blit/include/blit.h
+$(COUPLED): src/chipmem.c ../blit/src/blit.c ../blit/src/blit_cpu.c \
+            ../blit/src/blit_i915.c ../blit/src/blit_cl.c \
+            ../blit/src/addr_alloc.c tests/test_coupled.c \
+            include/chipmem.h ../blit/include/blit.h
 	$(CC) $(CFLAGS) -o $@ src/chipmem.c ../blit/src/blit.c \
-	   ../blit/src/blit_i915.c ../blit/src/blit_cl.c \
-	   ../blit/src/addr_alloc.c tests/test_coupled.c $(LDFLAGS)
+	   ../blit/src/blit_cpu.c ../blit/src/blit_i915.c \
+	   ../blit/src/blit_cl.c ../blit/src/addr_alloc.c \
+	   tests/test_coupled.c $(LDFLAGS)
 
 check: $(TEST)
 	./$(TEST)
