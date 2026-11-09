@@ -1,144 +1,120 @@
 # The Level
 
-Two small userspace libraries that restore, on Linux, two accelerator
-programming primitives the Amiga exposed to programmers and that
-Linux does not expose at the same level of simplicity:
+**Zero-copy CPU/GPU shared memory for Linux, with a programmable asynchronous 2D engine built on top.**
 
-- **`chipmem`** — coherent CPU/accelerator memory with one explicit
-  `chipmem_sync()` handoff.
-- **`blit`** — a programmable 2D engine with a minterm, a mask, a
-  shift, and a per-operation completion handle.
+Most AI systems assume the CPU and the GPU occupy separate address spaces, and that moving data between them is the application's responsibility. This assumption is why GPU acceleration is commonly associated with discrete hardware. On platforms where the GPU shares physical memory with the CPU — including integrated Intel GPUs and a growing number of discrete devices — the assumption does not hold. The hardware can already read and write the same bytes. What was missing was a small, explicit contract for using that capability safely.
 
-Not a reimplementation of Amiga hardware. The hardware is irrelevant.
-The programming model is the point.
+This library provides that contract, in two headers:
 
-## What this is for
+- `chipmem.h` — allocates a buffer accessible to both the CPU and the GPU, with a single explicit handoff call and a single free.
+- `blit.h` — a 2D engine operating on those buffers: copy, masked sprite, and fill, with a per-operation completion handle.
 
-Most AI systems still treat CPU and accelerator memory as permanently
-foreign address spaces, forcing copies and complex pinning APIs for
-every non-tensor 2D operation in the pipeline. On the growing class of
-hardware that can share memory through DMA-BUF (integrated GPUs today,
-an increasing number of discrete devices tomorrow), that assumption is
-unnecessary. The Level provides two small userspace libraries:
-`chipmem`, which turns the kernel's required DMA-BUF coherency
-protocol into a single named handoff, and `blit`, a programmable
-async 2D engine that can operate zero-copy on those buffers. Together
-they let pre- and post-processing (tiling, masking, layout
-conversion, tokenizer transforms) stay on the GPU without the usual
-copy tax, while remaining honest about the cases where the hardware
-still requires a transfer.
+The objective is not to outperform a discrete GPU. The objective is to make the GPU already present in a standard laptop usable for GPU-side work without an intervening copy.
 
-## The rule
+## Verified on integrated hardware
 
-We only claim a "reinvention" if the capability is **actually absent**
-on Linux today. `docs/linux-equivalents.md` names the closest
-existing mechanism for each candidate, why it does not count, and the
-concrete condition under which the claim would be withdrawn. If the
-existing mechanism is genuinely equivalent, the item is dropped.
+The implementation was built and verified on an Intel Skylake-U platform (HD Graphics 520, `i915` driver, kernel 7.2.13), a 2015-generation integrated GPU. The GPU reads and writes the same physical pages the CPU writes. The composition test performs the following sequence: the CPU fills a buffer, `chipmem_sync` hands it off, `blit` copies it on the GPU, `blit_op_wait` blocks on completion, `chipmem_sync` brackets the read, and the CPU verifies the result. The result is 0 mismatches out of 1024 elements, with no copy at the API boundary.
 
-## What works today
+The handoff is not decorative. The negative control performs the same copy with `chipmem_sync` omitted, repeated 100 times per case:
 
-### `chipmem`
+- Both sync calls omitted: 85 and 99 stale reads out of 100, across two batches.
+- Output sync omitted only: 97 and 100 stale reads out of 100.
 
-- `chipmem.h`: `chipmem_alloc`, `chipmem_cpu_ptr`,
-  `chipmem_dmabuf_fd`, `chipmem_sync`, `chipmem_backend`,
-  `chipmem_backend_cost`, `chipmem_free`, `chipmem_set_fd`,
-  `chipmem_gem_handle`.
-- `chipmem.c`: i915 GEM + PRIME backend. `DRM_IOCTL_I915_GEM_CREATE` +
-  `DRM_IOCTL_PRIME_HANDLE_TO_FD` (with `DRM_CLOEXEC | DRM_RDWR`)
-  exports a DMA-BUF that `mmap()` accepts and `DMA_BUF_IOCTL_SYNC`
-  brackets without error. Allocation size is rounded up to the page
-  size internally.
-- `udmabuf` was rejected as a backend on kernel 7.2.13: its
-  `begin_cpu_access` returns `EINVAL` on first sync. The i915 path is
-  the real backend.
+Without the handoff, the CPU reads the buffer before the GPU has completed, in the majority of runs. The synchronization call is what makes the result correct, and the measurement establishes it.
 
-### `blit`
+## Origin
 
-Two working GPU backends:
+The project began as an Amiga emulator frontend (AmigaDroid). Work on that project produced a design note, "What the Amiga Had That Was Lost," and the conclusion that the honest interpretation of "reinvent it on Linux" is not to reimplement the Amiga hardware, but to identify which capabilities are genuinely absent on Linux today and to re-instantiate the programming model.
 
-- **Rusticl / iris** (`BLIT_BACKEND_GPU_COPY`). Kernels run on the GPU
-  via `cl_event` completion handles. Data is copied to and from GPU
-  buffers because Rusticl does not support
-  `cl_khr_external_memory_dma_buf`. Cross-platform, copy at the
-  boundary.
-- **i915 BLT zero-copy** (`blit_i915.c`). `XY_SRC_COPY_BLT` submitted
-  to the BLT ring via `DRM_IOCTL_I915_GEM_EXECBUFFER2` with softpin.
-  The GPU reads and writes the `chipmem` GEM handles directly, no
-  copy. Verified on Skylake-U. Gen8/Gen9-specific; not a universal
-  backend.
+The Amiga's distinguishing characteristic was not any individual chip. It was that display, 2D blitting, memory shared with accelerators, and scheduling were exposed to the programmer at the same level of abstraction, with the same simplicity, on the same machine. A 1985 system provided this. A Linux laptop does not, by default. This library implements the portion of that model that proved buildable: the shared-memory contract and the 2D engine.
 
-Minterms `0xF0` (copy), `0xCA` (masked sprite), `0x00` (fill). The
-stability guarantee — waiting on operation N completes independently
-of N+1 — is honored by `cl_event` handles on the Rusticl path.
+## API
 
-### The coupled test
+```c
+chipmem_buffer_t *in  = chipmem_alloc(4096, NULL);
+chipmem_buffer_t *out = chipmem_alloc(4096, NULL);
+chipmem_register_for_blit(in);
+chipmem_register_for_blit(out);
 
-`chipmem/tests/test_coupled.c` runs the i915 BLT backend on the
-actual `chipmem` GEM handles. The GPU reads and writes the same pages
-the CPU wrote. Case A passes: `0/1024 mismatched`.
+uint32_t *src = chipmem_cpu_ptr(in);
+uint32_t *dst = chipmem_cpu_ptr(out);
+fill(src);
 
-The negative controls run each case 100 times. Skipping
-`chipmem_sync` produces a stale or partially-written destination
-buffer at a very high rate. Across two batches of 100 runs on the
-same hardware and binary:
+chipmem_sync(in, CHIPMEM_ACCESS_CPU_WRITE);
 
-- Case B (both brackets missing): 85/100 and 99/100 stale.
-- Case C (output bracket missing): 97/100 and 100/100 stale.
+blit_desc_t d = { .minterm = 0xF0, .src = src, .dst = dst,
+                  .width = 1024, .height = 1, .bpp = 4 };
+blit_op_t *op = blit(&d, BLIT_MODE_ASYNC);
+blit_op_wait(op);
 
-The rate itself varies between batches. The hazard is real, the
-output bracket is the more critical of the two, and `chipmem_sync` is
-load-bearing. A single 100-run batch's confidence interval describes
-that batch, not the phenomenon; the honest statement is the observed
-range across batches. An earlier single-run test landed in the clean
-minority and reported the wrong conclusion; the 100-run loop exposed
-the race.
+chipmem_sync(out, CHIPMEM_ACCESS_ACCEL_WRITE);
+check(dst);
+```
 
-## Target hardware
+`chipmem_alloc` returns a buffer. `chipmem_sync` is the handoff: call it with `CPU_WRITE` after CPU writes, and with `ACCEL_WRITE` after GPU writes. `blit` submits an operation and returns a handle. `blit_op_wait` blocks until completion. The API does not require `begin_cpu_access` / `end_cpu_access` pairs, manual DMA-BUF import, or explicit fence management.
 
-Intel Skylake-U GT2 (HD Graphics 520), `i915`, kernel 7.2.13.
-`chipmem` backend: `CHIPMEM_BACKEND_DMABUF_SYNC_IOCTL`.
-`blit` backends: `BLIT_BACKEND_GPU_COPY` (Rusticl) and i915 BLT
-zero-copy.
+## Relevance to AI workloads
 
-## Not doing
+AI pipelines contain substantial non-tensor 2D work: image resizing and normalization, tokenizer layout transformations, attention mask construction, and KV-cache tiling. This work either executes on the CPU, which is serial and comparatively slow, or is offloaded to a GPU with copy-in and copy-out at the boundary, which presumes a GPU with separate memory and the budget to acquire it.
 
-- Re-implementing Amiga hardware.
-- Claiming Linux lacks something without proving the closest existing
-  mechanism doesn't count.
-- Promising hardware-dependent features before feasibility is shown.
-- Claiming "AI acceleration" in the sense of more FLOPs. The claim is
-  about the programming model and the data path, not throughput.
-- Claiming the coherency hazard is real on hardware where the test
-  says it does not manifest.
+On a platform that shares memory, neither is necessary. The data remains in place and the GPU operates on it directly. This library enables that on hardware already present in the machine. It is not a faster memory copy; it is the contract that makes the integrated GPU usable for this class of work.
 
-## Repo layout
+## Implementation of the zero-copy path
 
-the-level/
-├── chipmem/
-│ ├── include/chipmem.h
-│ ├── src/chipmem.c
-│ └── tests/
-│ ├── test_coherency.c
-│ └── test_coupled.c
-├── blit/
-│ ├── include/blit.h
-│ ├── src/
-│ │ ├── blit.c
-│ │ ├── blit_cl.c
-│ │ ├── blit_cl.h
-│ │ ├── blit_i915.c
-│ │ ├── blit_i915.h
-│ │ ├── addr_alloc.c
-│ │ └── addr_alloc.h
-│ └── tests/test_blit.c
-├── copper/ # audit entry only, no code
-├── docs/linux-equivalents.md
-└── README.md
+The GPU does not copy at the API boundary. The path consists of three steps:
 
-text
+1. `chipmem_alloc` creates a GEM object with `DRM_IOCTL_I915_GEM_CREATE`, exports it as a DMA-BUF with `DRM_IOCTL_PRIME_HANDLE_TO_FD`, and maps it for CPU access with `mmap`.
+2. `blit` constructs an `XY_SRC_COPY_BLT` command stream, writes it into a batch GEM object, and submits it to the BLT ring with `DRM_IOCTL_I915_GEM_EXECBUFFER2`. The source, destination, and batch are soft-pinned at fixed GPU addresses, without relocations.
+3. `chipmem_sync` on the destination brackets the CPU read with `DMA_BUF_IOCTL_SYNC`, which blocks until the GPU has completed.
+
+The complete path, including the details that proved necessary (`MI_BATCH_BUFFER_END` must be `0x05000000`; `GEM_SET_DOMAIN` is retired on this kernel; relocations are rejected on Gen9), is documented in `docs/linux-equivalents.md`.
+
+## Backends
+
+`blit` provides three backends behind a single contract. `blit_init()` selects the most capable available backend, and `blit_caps()` reports its capabilities:
+
+| Backend | Zero-copy | Minterms | Completion |
+|---|---|---|---|
+| `i915` BLT | yes | `0xF0` | `chipmem_sync` on dst |
+| `rusticl` | no (copies) | `0xF0`, `0xCA`, `0x00` | `cl_event` |
+| `cpu` | n/a | all three | synchronous |
+
+The `i915` backend performs the operation directly on the `chipmem` buffers. The `rusticl` backend executes kernels on any GPU with a Rusticl platform, but copies at the boundary. The `cpu` backend is always available and serves as the fallback.
+
+A new backend requires one source file and one entry in the `blit_init` candidate list. The interface is documented in `docs/backends.md`.
+
+## Build and test
+
+Requires `libdrm`, `opencl-headers`, `OpenCL-ICD-Loader-devel`, and, for the Rusticl backend, `RUSTICL_ENABLE=iris`.
+
+```bash
+cd blit    && make clean && make check
+cd chipmem && make clean && make check && make check-coupling
+```
+
+`make check` runs the `blit` tests and reports the selected backend. `make check-coupling` runs the composition test: a `chipmem` buffer passes through `blit()`, the GPU reads and writes the same pages, and the CPU reads the result. The output includes the selected backend, the capability mask, and the stale-rate range for the negative controls.
+
+## Scope
+
+The library is complete for the hardware on which it was built and verified: Intel Gen8/Gen9 iGPU with `i915` and an available render node, verified on Skylake-U, kernel 7.2.13.
+
+It also functions, with copying, on any GPU with a Rusticl platform.
+
+Beyond that hardware, the work is an extension: a discrete-GPU zero-copy backend (NVIDIA open kernel driver with DMA-BUF, or `amdgpu`) is specified in `docs/backends.md`. It is not required for the library to be complete, and it cannot be built or tested on the current machine.
+
+`copper` (a scanline-synchronized display agent) was evaluated and found not reachable from userspace on `i915`. It is documented, not implemented.
+
+## What this is not
+
+- It is not a reimplementation of Amiga hardware. The hardware is not relevant; the programming model is, and the Amiga is the origin of the idea.
+- It is not an AI accelerator in the sense of additional floating-point throughput. The claim concerns the data path: no copies, one explicit handoff, on the GPU already present.
+- It is not a claim that Linux lacks GPU APIs. The claim is narrower: there is no small userspace contract for CPU/accelerator shared memory with a measured coherency guarantee, and no programmable asynchronous 2D engine with per-operation completion behind a single contract.
+
+## Further documentation
+
+- `docs/linux-equivalents.md` — the audit: every claim, the closest existing Linux mechanism, why it does not count, and the condition under which the claim would be withdrawn. Includes the closed paths (udmabuf, `SET_DOMAIN`, `GEM_WAIT`, relocations, Kaggle) and the sampling lesson that changed a withdrawal into a proof.
+- `docs/backends.md` — the backend interface, the three backends, and the requirements for a discrete backend.
 
 ## License
 
-MIT or Apache-2.0 for `chipmem` and `blit`. `copper` license decided at
-feasibility time.
+MIT or Apache-2.0 for `chipmem` and `blit`.
