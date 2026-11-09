@@ -401,3 +401,29 @@ hazard. A zero-copy backend for the discrete hardware (e.g. NVIDIA
 open kernel driver with DMA-BUF, or amdgpu) is the prerequisite. The
 audit records this rather than renting a GPU to run a test that
 cannot answer the question.
+
+### blit abstraction and backend selection (2026-11-10)
+
+blit_init() selects a backend in this order:
+1. GPU_ZERO_COPY — i915 BLT, if blit_i915_init() succeeds.
+2. GPU_COPY — Rusticl/iris, if blit_cl_init() succeeds.
+3. CPU_FALLBACK — always available.
+
+blit_backend() reports the active backend. blit_set_fd() lets the
+caller share a render node with the zero-copy backend so chipmem GEM
+handles are in the same namespace as the batch.
+
+The blit() contract is unchanged: minterm, mask, shift, size, and a
+per-operation completion handle. On GPU_ZERO_COPY the minterm 0xF0
+goes through the BLT ring; 0xCA and 0x00 fall through to the CPU
+because the BLT ROP cannot express a three-input cookie-cut. On
+GPU_COPY all three minterms run on the GPU via Rusticl kernels.
+
+The coupled test calls blit() and blit_op_wait() and gets backend 4
+(GPU_ZERO_COPY). Case A passes: the GPU read the chipmem source GEM
+handle and wrote the chipmem destination GEM handle directly. Cases B
+and C report the chipmem coherency withdrawal on iGPU.
+
+The fd-namespace bug that made all three objects name handle 1 is
+fixed by blit_set_fd(): chipmem and blit share one render node, so
+GEM handles are in one namespace.

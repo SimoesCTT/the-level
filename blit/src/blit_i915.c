@@ -9,6 +9,7 @@
 
 #define _GNU_SOURCE
 #include <errno.h>
+#include <fcntl.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -200,4 +201,82 @@ void blit_i915_close_batch(uint32_t batch_handle)
     if (!g_i915.ready) return;
     struct drm_gem_close c = { .handle = batch_handle };
     ioctl(g_i915.drm_fd, DRM_IOCTL_GEM_CLOSE, &c);
+}
+
+/* ---- Pointer-to-handle registry --------------------------------- */
+
+#define BLIT_I915_MAX_REG 32
+struct blit_i915_reg {
+    const void *ptr;
+    uint32_t    gem_handle;
+    uint32_t    pitch;
+};
+static struct blit_i915_reg g_reg[BLIT_I915_MAX_REG];
+static int g_reg_count = 0;
+
+void blit_i915_register_ptr(const void *ptr, uint32_t gem_handle,
+                            uint32_t pitch)
+{
+    if (g_reg_count >= BLIT_I915_MAX_REG) return;
+    g_reg[g_reg_count].ptr        = ptr;
+    g_reg[g_reg_count].gem_handle = gem_handle;
+    g_reg[g_reg_count].pitch      = pitch;
+    g_reg_count++;
+}
+
+void blit_i915_unregister_ptr(const void *ptr)
+{
+    for (int i = 0; i < g_reg_count; i++) {
+        if (g_reg[i].ptr == ptr) {
+            g_reg[i] = g_reg[g_reg_count - 1];
+            g_reg_count--;
+            return;
+        }
+    }
+}
+
+static int find_reg(const void *ptr, uint32_t *gem_handle, uint32_t *pitch)
+{
+    for (int i = 0; i < g_reg_count; i++) {
+        if (g_reg[i].ptr == ptr) {
+            *gem_handle = g_reg[i].gem_handle;
+            *pitch      = g_reg[i].pitch;
+            return 0;
+        }
+    }
+    return -1;
+}
+
+int blit_i915_init_from_env(void)
+{
+    const char *node = getenv("CHIPMEM_RENDER_NODE");
+    if (!node) node = "/dev/dri/renderD128";
+    int fd = open(node, O_RDWR | O_CLOEXEC);
+    if (fd < 0) return -errno;
+    int rc = blit_i915_init(fd);
+    if (rc != 0) close(fd);
+    return rc;
+}
+
+int blit_i915_copy_from_ptr(const void *src, void *dst,
+                            uint32_t width, uint32_t height, uint8_t bpp,
+                            uint32_t src_stride, uint32_t dst_stride,
+                            uint32_t *out_src_handle,
+                            uint32_t *out_dst_handle,
+                            uint32_t *out_batch)
+{
+    if (bpp != 4) return -ENOTSUP;
+    if (!src_stride) src_stride = width * bpp;
+    if (!dst_stride) dst_stride = width * bpp;
+
+    uint32_t src_h = 0, dst_h = 0, src_p = 0, dst_p = 0;
+    if (find_reg(src, &src_h, &src_p) != 0) return -ENOENT;
+    if (find_reg(dst, &dst_h, &dst_p) != 0) return -ENOENT;
+
+    int rc = blit_i915_copy(src_h, src_stride, dst_h, dst_stride,
+                            width, height, out_batch);
+    if (rc != 0) return rc;
+    if (out_src_handle) *out_src_handle = src_h;
+    if (out_dst_handle) *out_dst_handle = dst_h;
+    return 0;
 }

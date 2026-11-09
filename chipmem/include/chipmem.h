@@ -127,6 +127,14 @@ int chipmem_gem_handle(chipmem_buffer_t *buf, uint32_t *out_handle);
  */
 int chipmem_gem_handle(chipmem_buffer_t *buf, uint32_t *out_handle);
 
+/*
+ * Register this buffer with the blit library so a blit_desc_t that
+ * points at chipmem_cpu_ptr() can be mapped back to its i915 GEM
+ * handle. Call once after chipmem_alloc, before using the buffer
+ * with blit() on the GPU_ZERO_COPY backend.
+ */
+int chipmem_register_for_blit(chipmem_buffer_t *buf);
+
 void chipmem_free(chipmem_buffer_t *buf);
 
 #ifdef __cplusplus

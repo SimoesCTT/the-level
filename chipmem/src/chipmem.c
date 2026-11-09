@@ -280,6 +280,25 @@ int chipmem_gem_handle(chipmem_buffer_t *buf, uint32_t *out_handle)
 
 
 
+
+int chipmem_register_for_blit(chipmem_buffer_t *buf)
+{
+    if (!buf) {
+        errno = EINVAL;
+        return -EINVAL;
+    }
+    if (buf->gem_handle == 0)
+        return -ENOTSUP;
+    /* The blit library owns the registry. We call into it through a
+     * weak symbol so chipmem does not link blit. */
+    extern void blit_i915_register_ptr(const void *, uint32_t, uint32_t)
+        __attribute__((weak));
+    if (!blit_i915_register_ptr)
+        return -ENOTSUP;
+    blit_i915_register_ptr(buf->cpu_ptr, buf->gem_handle, (uint32_t)buf->size);
+    return 0;
+}
+
 void chipmem_free(chipmem_buffer_t *buf)
 {
     if (!buf)

@@ -97,6 +97,14 @@ typedef struct {
  * (which is correct but synchronous and slow) otherwise. The chosen
  * backend is reported by blit_backend().
  */
+/*
+ * Use an existing DRM fd for the GPU_ZERO_COPY backend. Call before
+ * blit_init() if the caller already has a render node open and wants
+ * the zero-copy backend to share its GEM handle namespace. If not
+ * called, blit_init() opens its own render node.
+ */
+void blit_set_fd(int fd);
+
 int blit_init(void);
 
 typedef enum {
@@ -117,7 +125,16 @@ typedef enum {
      * honest label for a Rusticl backend on hardware where
      * cl_khr_external_memory_dma_buf is unavailable.
      */
-    BLIT_BACKEND_GPU_COPY = 3
+    BLIT_BACKEND_GPU_COPY = 3,
+
+    /*
+     * GPU execution with no copy at the API boundary. The kernel reads
+     * and writes the caller's buffers directly. The backend must be
+     * able to import the caller's memory (a chipmem GEM handle on
+     * i915) and submit a fixed-function 2D command stream against it.
+     * This is the honest label for the i915 BLT backend on Skylake.
+     */
+    BLIT_BACKEND_GPU_ZERO_COPY = 4
 } blit_backend_t;
 
 /* Report the backend chosen by blit_init(). */

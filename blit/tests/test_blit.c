@@ -131,7 +131,7 @@ int main(void)
         fprintf(stderr, "blit_init failed\n");
         return 1;
     }
-    printf("blit backend: %d (0=GPU_ASYNC, 1=GPU_SYNC, 2=CPU_FALLBACK, 3=GPU_COPY)\n",
+    printf("blit backend: %d (0=GPU_ASYNC, 1=GPU_SYNC, 2=CPU_FALLBACK, 3=GPU_COPY, 4=GPU_ZERO_COPY)\n",
            (int)blit_backend());
 
     int rc = 0;
@@ -151,6 +151,12 @@ int main(void)
             printf("Data was copied to/from GPU buffers: Rusticl does not\n");
             printf("support cl_khr_external_memory_dma_buf, so zero-copy\n");
             printf("chipmem import is not available on this backend.\n");
+        } else if (be == BLIT_BACKEND_GPU_ZERO_COPY) {
+            printf("Backend: GPU_ZERO_COPY (i915 BLT).\n");
+            printf("Note: this test does not register its buffers with\n");
+            printf("the chipmem registry, so blit() falls through to\n");
+            printf("the CPU for every minterm. The coupled test in\n");
+            printf("chipmem/tests proves the zero-copy path.\n");
         } else if (be == BLIT_BACKEND_CPU_FALLBACK) {
             printf("Backend: CPU_FALLBACK. No GPU execution.\n");
         } else {
