@@ -49,9 +49,7 @@ export CFLAGS="%{optflags}"
 make -C blit check
 make -C chipmem check || test $? -eq 77
 
-%check
-make -C blit check
-make -C chipmem check || test $? -eq 77
+
 
 %install
 install -d %{buildroot}%{_includedir}/the-level
