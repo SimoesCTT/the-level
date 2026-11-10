@@ -83,6 +83,11 @@ The `i915` backend performs the operation directly on the `chipmem` buffers. The
 
 A new backend requires one source file and one entry in the `blit_init` candidate list. The interface is documented in `docs/backends.md`.
 
+## Install (Fedora 43 / rawhide)
+
+sudo dnf copr enable simoesctt/the-level
+sudo dnf install the-level-devel
+
 ## Build and test
 
 Requires `libdrm`, `opencl-headers`, `OpenCL-ICD-Loader-devel`, and, for the Rusticl backend, `RUSTICL_ENABLE=iris`.
