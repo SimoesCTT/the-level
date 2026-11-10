@@ -6,7 +6,7 @@ Summary:        Zero-copy CPU/GPU shared memory and an async 2D engine for i915
 
 License:        MIT
 URL:            https://github.com/SimoesCTT/the-level
-Source0:        %{url}/archive/refs/tags/v%{version}.tar.gz
+Source0:        %{url}/releases/download/v%{version}/the-level-%{version}.tar.gz
 
 BuildRequires:  gcc
 BuildRequires:  make
