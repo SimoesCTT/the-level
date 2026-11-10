@@ -1,5 +1,6 @@
 CC      ?= cc
-CFLAGS  ?= -O2 -g -Wall -Wextra -Iinclude -I../blit/include -I../blit/src \
+CFLAGS  ?= -O2 -g -Wall -Wextra
+CFLAGS  += -Iinclude -I../blit/include -I../blit/src \
            -DCL_TARGET_OPENCL_VERSION=300 \
            $(shell pkg-config --cflags libdrm 2>/dev/null) \
            $(shell pkg-config --cflags OpenCL 2>/dev/null)
