@@ -4,7 +4,8 @@ CFLAGS  += -Iinclude -Isrc \
            -DCL_TARGET_OPENCL_VERSION=300 \
            $(shell pkg-config --cflags libdrm 2>/dev/null) \
            $(shell pkg-config --cflags OpenCL 2>/dev/null)
-LDFLAGS ?= $(shell pkg-config --libs libdrm 2>/dev/null) \
+LDFLAGS ?=
+LDFLAGS += $(shell pkg-config --libs libdrm 2>/dev/null) \
            $(shell pkg-config --libs OpenCL 2>/dev/null)
 
 TEST := tests/test_blit
