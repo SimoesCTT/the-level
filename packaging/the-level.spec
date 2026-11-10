@@ -30,24 +30,18 @@ Verified on Intel Skylake-U (HD Graphics 520, i915, kernel 7.2.13).
 The negative control, with the sync removed, produces stale reads
 42-99% of the time across 100-run batches.
 
-%package devel
-Summary:        Development headers for the-level
-Requires:       %{name}%{?_isa} = %{version}-%{release}
 
-%description devel
-Development headers for chipmem and blit.
 
 %prep
-%autosetup -n %{name}-%{version}
+%autosetup
 
 %build
-export CFLAGS="%{optflags}"
 %make_build -C blit
 %make_build -C chipmem
 
 %check
 make -C blit check
-make -C chipmem check || :
+make -C chipmem check
 
 
 
@@ -56,10 +50,8 @@ install -d %{buildroot}%{_includedir}/the-level
 install -m 0644 chipmem/include/chipmem.h %{buildroot}%{_includedir}/the-level/
 install -m 0644 blit/include/blit.h %{buildroot}%{_includedir}/the-level/
 
-%files devel
-%dir %{_includedir}/the-level
-%{_includedir}/the-level/chipmem.h
-%{_includedir}/the-level/blit.h
+%files
+%{_includedir}/the-level
 %license LICENSE
 %doc README.md
 

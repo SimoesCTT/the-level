@@ -26,7 +26,7 @@ $(COUPLED): src/chipmem.c ../blit/src/blit.c ../blit/src/blit_cpu.c \
 	   tests/test_coupled.c $(LDFLAGS) -lm
 
 check: $(TEST)
-	./$(TEST)
+	./$(TEST); rc=$$?; test $$rc -eq 0 -o $$rc -eq 77
 
 check-coupling: $(COUPLED)
 	RUSTICL_ENABLE=iris ./$(COUPLED)
